@@ -247,4 +247,3 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 54ce9c09d525e224f919a63b420fd684, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  verticesIndices: 

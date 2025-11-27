@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using Vector2 = UnityEngine.Vector2;
 using Vector3 = UnityEngine.Vector3;
@@ -7,10 +8,10 @@ using Vector3 = UnityEngine.Vector3;
 public class Map : MonoBehaviour
 {
     public static List<Vector2> points;
-    public static List<Triangle> triangles;
+    public static List<TriangleMesh> triangleMeshs;
     public static HashSet<Line> lines;
-    public static Dictionary<Line,List<Triangle>> lineTriangleDictionary;
-    public static Dictionary<int,List<Triangle>> pointIndexTriangleDictionary;
+    public static Dictionary<Line,List<TriangleMesh>> lineTriangleDictionary;
+    public static Dictionary<int,List<TriangleMesh>> pointIndexTriangleDictionary;
     public GameObject trianglePrefab;
     public Material material;
     public Material stopMaterial;
@@ -22,23 +23,21 @@ public class Map : MonoBehaviour
     private float time = 0;
     
     private static Building largeBuilding = new Building(5, Vector2Int.zero, 1.5f);
-    public Button button;
+    public Canvas canvas;
+    private List<GameObject> pointPrefabs = new List<GameObject>();
+    public GameObject pointPrefab;
+    public Button clear;
+    public Button startTriangulation;
     public bool flag = false;
 
-    Triangle InstantiateTriangle(int v0, int v1, int v2)
+    void InstantiateTriangleMesh(int v0, int v1, int v2)
     {
         GameObject newTriangle = Instantiate(trianglePrefab,transform);
-        Triangle triangle = newTriangle.GetComponent<Triangle>();
-        triangle.Init(v0,v1,v2);
-        return triangle;
+        newTriangle.GetComponent<TriangleMesh>().Init(v0,v1,v2);
     }
 
-    void ConstrainedTriangulation(List<int> pointsIndices)
+    List<Line> ConstrainedLines(List<int> pointsIndices)
     {
-        for (int i = 0; i < pointsIndices.Count; i++)
-        {
-            Triangulation(pointsIndices[i]);
-        }
         List<Line> constrainedLines = new List<Line>();
         for (int i = 0; i < pointsIndices.Count; i++)
         {
@@ -49,6 +48,15 @@ public class Map : MonoBehaviour
             {
                 constrainedLines.Add(l);
             }
+        }
+        return  constrainedLines;
+    }
+
+    void ConstrainedTriangulation(List<int> pointsIndices,List<Line> constrainedLines,bool keepInside)
+    {
+        for (int i = 0; i < pointsIndices.Count; i++)
+        {
+            Triangulation(pointsIndices[i]);
         }
 
         Queue<Line> conflitLines = new Queue<Line>();
@@ -71,14 +79,14 @@ public class Map : MonoBehaviour
                 {
                     for (int k = 0; k < indices.Count; k++)
                     {
-                        if (indices[k] != lineTriangleDictionary[conflitLines.Peek()][0].verticesIndices[j])
+                        if (indices[k] != lineTriangleDictionary[conflitLines.Peek()][0].triangle.verticesIndices[j])
                         {
-                            indices.Add(lineTriangleDictionary[conflitLines.Peek()][0].verticesIndices[j]);
+                            indices.Add(lineTriangleDictionary[conflitLines.Peek()][0].triangle.verticesIndices[j]);
                         }
 
-                        if (indices[k] != lineTriangleDictionary[conflitLines.Peek()][1].verticesIndices[j])
+                        if (indices[k] != lineTriangleDictionary[conflitLines.Peek()][1].triangle.verticesIndices[j])
                         {
-                            indices.Add(lineTriangleDictionary[conflitLines.Peek()][1].verticesIndices[j]);
+                            indices.Add(lineTriangleDictionary[conflitLines.Peek()][1].triangle.verticesIndices[j]);
                         }
                     }
                 }
@@ -93,26 +101,105 @@ public class Map : MonoBehaviour
 
                 lineTriangleDictionary[conflitLines.Peek()][0].Remove();
                 lineTriangleDictionary[conflitLines.Peek()][1].Remove();
-                InstantiateTriangle(indices[0], indices[2], indices[3]);
-                InstantiateTriangle(indices[1], indices[2], indices[3]);
+                InstantiateTriangleMesh(indices[0], indices[2], indices[3]);
+                InstantiateTriangleMesh(indices[1], indices[2], indices[3]);
                 conflitLines.Dequeue();
             }
         }
     }
-    
-    void Triangulation(int pointIndex)
+
+    void DeleteLastPoints(int length)
+    {
+        for (int i = 0; i < length; i++) 
+        {
+            DeletePoint(points.Count-1);
+        }
+    }
+
+    void DeletePoint(int pointIndex)
+    {
+        HashSet<int> hashIndices=new HashSet<int>();
+        List<int> emptyHolePointsIndices=new List<int>();
+        for (int i = 0; i < pointIndexTriangleDictionary[pointIndex].Count; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                hashIndices.Add(pointIndexTriangleDictionary[pointIndex][i].triangle.verticesIndices[j]);
+            }
+            pointIndexTriangleDictionary[pointIndex][i].Remove();
+            i--;
+        }
+        hashIndices.Remove(pointIndex);
+        foreach (int vindices in hashIndices)
+        {
+            emptyHolePointsIndices.Add(vindices);
+        }
+        EmptyHoleTriangulation(emptyHolePointsIndices);
+        points.RemoveAt(pointIndex);
+    }
+
+    void EmptyHoleTriangulation(List<int> pointsIndices)
+    {
+        Vector2 leftdown=points[pointsIndices[0]], rightup=points[pointsIndices[0]];
+        for (int i = 0; i < pointsIndices.Count; i++)
+        {
+            leftdown = Vector2.Min((points[pointsIndices[i]]), leftdown);
+            rightup = Vector2.Max((points[pointsIndices[i]]), rightup);
+        }
+        leftdown-=Vector2.one;
+        rightup+=Vector2.one;
+        List<Vector2> tmpPoints = new List<Vector2>();
+        List<int> tmpPointsIndices = new List<int>();
+        tmpPoints.Add(leftdown);
+        tmpPoints.Add(new Vector2(rightup.x, leftdown.y));
+        tmpPoints.Add(rightup);
+        tmpPoints.Add(new Vector2(leftdown.x, rightup.y));
+        List<Triangle> triangles = new List<Triangle>();
+        Triangle triangle1 = new Triangle(0,1,2,tmpPoints);
+        Triangle triangle2 = new Triangle(0,2,3,tmpPoints);
+        triangles.Add(triangle1);
+        triangles.Add(triangle2);
+        for (int i = 0; i < pointsIndices.Count; i++)
+        {
+            tmpPoints.Add(points[pointsIndices[i]]);
+            tmpPointsIndices.Add(i+4);
+            OutTriangulation(tmpPoints,triangles,tmpPointsIndices[i]);
+        }
+
+        for (int i = 0; i < triangles.Count; i++)
+        {
+            bool flag = true;
+            for (int j = 0; j < 3; j++)
+            {
+                if (triangles[i].verticesIndices[j] < 4)
+                {
+                    flag = false;
+                    break;
+                }
+            }
+
+            if (flag)
+            {
+                InstantiateTriangleMesh(pointsIndices[triangles[i].verticesIndices[0] - 4],
+                    pointsIndices[triangles[i].verticesIndices[1] - 4],
+                    pointsIndices[triangles[i].verticesIndices[2] - 4]);
+            }
+        }
+    }
+
+    void OutTriangulation(List<Vector2> points,List<Triangle> triangles, int pointIndex)
     {
         HashSet<int> hashIndices=new HashSet<int>();
         List<int> newPointsIndices=new List<int>();
         for (int i = 0; i < triangles.Count; i++)
         {
             if (triangles[i].circumcircle.Check(points[pointIndex]))
-            { 
+            {
                 for (int j = 0; j < 3; j++)
                 {
                     hashIndices.Add(triangles[i].verticesIndices[j]);
                 }
-                triangles[i].Remove();
+                triangles.RemoveAt(i);
                 i--;
             }
         }
@@ -121,6 +208,24 @@ public class Map : MonoBehaviour
         {
             newPointsIndices.Add(vindices);
         }
+        
+        Clockwise(points,newPointsIndices,pointIndex);
+        
+        for (int i = 0; i < newPointsIndices.Count; i++)
+        {
+            if (Vector3.Cross(points[newPointsIndices[i]] - points[newPointsIndices[(i + 1) % newPointsIndices.Count]],
+                    points[newPointsIndices[(i + 1) % newPointsIndices.Count]] - points[pointIndex]).z > 0.01f)
+            {
+                Triangle triangle = new Triangle(newPointsIndices[i],
+                    newPointsIndices[(i + 1) % newPointsIndices.Count],
+                    pointIndex, points);
+                triangles.Add(triangle);
+            }
+        }
+    }
+
+    void Clockwise(List<Vector2> points,List<int> newPointsIndices,int pointIndex)
+    {
         bool flag=true;
         Vector2 basevector = points[newPointsIndices[0]]-points[pointIndex];
         while (flag)
@@ -130,8 +235,8 @@ public class Map : MonoBehaviour
             {
                 Vector2 curVector = points[newPointsIndices[i]]-points[pointIndex];
                 Vector2 nextVector = points[newPointsIndices[i+1]]-points[pointIndex];
-                Vector3 curCross = Vector3.Cross(basevector, curVector);
-                Vector3 nextCross = Vector3.Cross(basevector, nextVector);
+                Vector3 curCross = -Vector3.Cross(curVector, basevector);
+                Vector3 nextCross = -Vector3.Cross(nextVector, basevector);
                 float curAngle = Vector2.Angle(basevector, curVector);
                 float nextAngle = Vector2.Angle(basevector, nextVector);
                 if (curCross.z < 0 && nextCross.z >= 0)
@@ -151,30 +256,85 @@ public class Map : MonoBehaviour
                 }
             }
         }
+    }
+    
+    void Triangulation(int pointIndex)
+    {
+        HashSet<int> hashIndices=new HashSet<int>();
+        List<int> newPointsIndices=new List<int>();
+        for (int i = 0; i < triangleMeshs.Count; i++)
+        {
+            if (triangleMeshs[i].triangle.circumcircle.Check(points[pointIndex]))
+            {
+                for (int j = 0; j < 3; j++)
+                {
+                    hashIndices.Add(triangleMeshs[i].triangle.verticesIndices[j]);
+                }
+                triangleMeshs[i].Remove();
+                i--;
+            }
+        }
+
+        foreach (int vindices in hashIndices)
+        {
+            newPointsIndices.Add(vindices);
+        }
+        
+        Clockwise(points,newPointsIndices,pointIndex);
+        
         for (int i = 0; i < newPointsIndices.Count; i++)
         {
             if (Vector3.Cross(points[newPointsIndices[i]] - points[newPointsIndices[(i + 1) % newPointsIndices.Count]],
                     points[newPointsIndices[(i + 1) % newPointsIndices.Count]] - points[pointIndex]).z > 0.01f)
             {
-                InstantiateTriangle(newPointsIndices[i], newPointsIndices[(i + 1) % newPointsIndices.Count],
+                InstantiateTriangleMesh(newPointsIndices[i], newPointsIndices[(i + 1) % newPointsIndices.Count],
                     pointIndex);
             }
         }
-        
     }
 
 
     void EarCut()
     {
-        List<Vector2> pointSet = new List<Vector2>(points);
-        for (int i = 0; i < pointSet.Count; i++)
+        List<int> pointIndices = new List<int>();
+        for (int i = 0; i < points.Count; i++)
         {
-            //////////////////////////////////////////////////////////将三角形和三角网格分开实现，避免单纯检测点是否在三角形内要生成三角网格
+            pointIndices.Add(i);
+        }
+        int cnt = 0;
+        for (int i = 0; pointIndices.Count>2; i++)
+        {
+            i%=pointIndices.Count;
+            Vector2 a=points[pointIndices[i]];
+            Vector2 b=points[pointIndices[(i+1)%pointIndices.Count]];
+            Vector2 c=points[pointIndices[(i+2)%pointIndices.Count]];
+            if (Vector3.Cross(b - a, c - b).z < 0)
+            {
+                continue;
+            }
+            Triangle triangle = new Triangle(pointIndices[i],pointIndices[(i+1)%pointIndices.Count],pointIndices[(i+2)%pointIndices.Count],points);
+            bool flag = true;
+            for (int j = i + 3; j%pointIndices.Count != i; j++)
+            {
+                j%=pointIndices.Count;
+                if (triangle.Check(points[pointIndices[j%pointIndices.Count]]))
+                {
+                    flag = false;
+                    break;
+                }
+            }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
+            if (flag)
+            {
+                InstantiateTriangleMesh(pointIndices[i],pointIndices[(i+1)%pointIndices.Count],pointIndices[(i+2)%pointIndices.Count]);
+                pointIndices.RemoveAt((i+1)%pointIndices.Count);
+                i--;
+            }
         }
     }
     
     void InitMesh()
     {
+        
         EarCut();
         // Vector2 min = new Vector2(0, 0);
         // Vector2 max = new Vector2(size, size);
@@ -182,8 +342,8 @@ public class Map : MonoBehaviour
         // points.Add(max);
         // points.Add(new Vector2(0, size));
         // points.Add(new Vector2(size, 0));
-        // InstantiateTriangle(0,1,2);
-        // InstantiateTriangle(0,1,3);
+        // InstantiateTriangleMesh(0,1,2);
+        // InstantiateTriangleMesh(0,1,3);
     }
     
     void UpdateMesh(Vector2 point)
@@ -220,7 +380,8 @@ public class Map : MonoBehaviour
                 verticesIndices.Add(points.Count-1);
             }
         }
-        ConstrainedTriangulation(verticesIndices);
+        List<Line> constrainedLines = ConstrainedLines(verticesIndices);
+        ConstrainedTriangulation(verticesIndices,constrainedLines,true);
     }
 
     void InittrianglePrefab()
@@ -240,11 +401,11 @@ public class Map : MonoBehaviour
     {
         HashSet<int> hashIndices=new HashSet<int>();
         List<int> newPointsIndices=new List<int>();
-        for (int i = 0; i < triangles.Count; i++)
+        for (int i = 0; i < triangleMeshs.Count; i++)
         {
-            if (triangles[i].circumcircle.Check(center))
+            if (triangleMeshs[i].triangle.circumcircle.Check(center))
             {
-                triangles[i].GetComponent<MeshRenderer>().material=stopMaterial;
+                triangleMeshs[i].GetComponent<MeshRenderer>().material=stopMaterial;
             }
         }
     }
@@ -253,9 +414,10 @@ public class Map : MonoBehaviour
     {
         points=new List<Vector2>();
         lines=new HashSet<Line>();
-        triangles=new List<Triangle>();
-        lineTriangleDictionary=new Dictionary<Line,List<Triangle>>();
-        pointIndexTriangleDictionary=new Dictionary<int, List<Triangle>>();
+        triangleMeshs=new List<TriangleMesh>();
+        lineTriangleDictionary=new Dictionary<Line,List<TriangleMesh>>();
+        pointIndexTriangleDictionary=new Dictionary<int, List<TriangleMesh>>();
+        pointPrefabs = new List<GameObject>();
         camera=Camera.main;
     }
 
@@ -268,10 +430,29 @@ public class Map : MonoBehaviour
 
         // InitMesh();
         
-        button.onClick.AddListener(() =>
+        startTriangulation.onClick.AddListener(() =>
         {
             flag = true;
             InitMesh();
+        });
+        clear.onClick.AddListener(() =>
+        {
+            points.Clear();
+            lines.Clear();
+            while(triangleMeshs.Count > 0)
+            {
+                Destroy(triangleMeshs[^1].gameObject);
+                triangleMeshs.RemoveAt(triangleMeshs.Count - 1);
+            }
+            lineTriangleDictionary.Clear();
+            pointIndexTriangleDictionary.Clear();
+            while(pointPrefabs.Count > 0)
+            {
+                Destroy(pointPrefabs[^1]);
+                pointPrefabs.RemoveAt(pointPrefabs.Count - 1);
+            }
+
+            flag = false;
         });
     }
 
@@ -281,25 +462,51 @@ public class Map : MonoBehaviour
         {
             if (UnityEngine.Input.GetMouseButtonDown(0))
             {
-                // List<Vector2> pointSet=new List<Vector2>();
-                Vector3 mousePosition = UnityEngine.Input.mousePosition;
-                Vector3 worldPosition = Camera.main.ScreenToWorldPoint(mousePosition);
-                points.Add(worldPosition);
-                // pointSet.Add(worldPosition);
+                if (!EventSystem.current.IsPointerOverGameObject())
+                {
+                    Vector3 mousePosition = UnityEngine.Input.mousePosition;
+                    Vector3 worldPosition = Camera.main.ScreenToWorldPoint(mousePosition);
+                    GameObject gameObject = Instantiate(pointPrefab,canvas.transform);
+                    pointPrefabs.Add(gameObject);
+                    gameObject.transform.position = (Vector2)mousePosition;
+                    points.Add(worldPosition);
+                }
+            }
+
+            if (UnityEngine.Input.GetMouseButtonDown(1))
+            {
+                if (!EventSystem.current.IsPointerOverGameObject())
+                {
+                    points.RemoveAt(points.Count - 1);
+                    Destroy(pointPrefabs[^1]);
+                    pointPrefabs.RemoveAt(pointPrefabs.Count - 1);
+                }
             }
         }
         else
         {
             if (UnityEngine.Input.GetMouseButtonDown(0))
             {
-                Vector3 mousePosition = UnityEngine.Input.mousePosition;
-                Vector3 worldPosition = Camera.main.ScreenToWorldPoint(mousePosition);
-                Vector2Int pointer=new Vector2Int((int)worldPosition.x, (int)worldPosition.y);
-                largeBuilding.center = pointer;
-                UpdateMesh(largeBuilding.Vertices());
+                if (!EventSystem.current.IsPointerOverGameObject())
+                {
+                    Vector3 mousePosition = UnityEngine.Input.mousePosition;
+                    Vector3 worldPosition = Camera.main.ScreenToWorldPoint(mousePosition);
+                    Vector2Int pointer=new Vector2Int((int)worldPosition.x, (int)worldPosition.y);
+                    // UpdateMesh(worldPosition);
+                    largeBuilding.center = pointer;
+                    UpdateMesh(largeBuilding.Vertices());
+                }
+;
+            }
+            
+            if (UnityEngine.Input.GetMouseButtonDown(1))
+            {
+                if (!EventSystem.current.IsPointerOverGameObject())
+                {
+                    // DeletePoint(points.Count-1);
+                    DeleteLastPoints(largeBuilding.Vertices().Count);
+                }
             }
         }
-        
-        
     }
 }

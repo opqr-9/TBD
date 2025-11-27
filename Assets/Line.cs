@@ -32,9 +32,9 @@ public struct Line
         Vector2 CA=Map.points[otherline.maxpointIndex]-Map.points[maxpointIndex];
         Vector2 CB=Map.points[otherline.maxpointIndex]-Map.points[minpointIndex];
 
-        if (Vector3.Cross(AB, AC).z * Vector3.Cross(AB, AD).z < 0)
+        if (-Vector3.Cross(AB, AC).z * -Vector3.Cross(AB, AD).z < 0)
         {
-            if (Vector3.Cross(CD, CA).z * Vector3.Cross(CD, CB).z < 0)
+            if (-Vector3.Cross(CD, CA).z * -Vector3.Cross(CD, CB).z < 0)
             {
                 return true;
             }
