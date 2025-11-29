@@ -14,10 +14,6 @@ public class Circle
 
     public bool Check(Vector2 point)
     {
-        // Debug.Log(point);
-        // Debug.Log(center);
-        // Debug.Log(radius);
-        // Debug.Log((point - center).magnitude < radius);
         if ((point - center).magnitude < radius)
         {
             return true;
