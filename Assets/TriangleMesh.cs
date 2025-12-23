@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Data;
 using UnityEngine;
 
 public struct Triangle
@@ -81,7 +80,6 @@ public class TriangleMesh:MonoBehaviour
     public void Init(Triangle triangle)
     {
         this.triangle = triangle;
-        Map.triangleMeshs.Add(this);
         
         Mesh mesh = new Mesh();
         mesh.name = "Mesh";
@@ -96,13 +94,5 @@ public class TriangleMesh:MonoBehaviour
         lineRenderer.SetPositions(vertices);
         circleCollider2D.radius = triangle.circumcircle.radius;
         circleCollider2D.offset = triangle.circumcircle.center;
-    }
-
-    
-    
-    public void Remove()
-    {
-        Map.triangleMeshs.Remove(this);
-        Destroy(gameObject);
     }
 }

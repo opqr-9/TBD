@@ -1,7 +1,6 @@
-
+using System;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.AI;
 
 public enum Delete
 {
@@ -19,6 +18,8 @@ public class DigitalMesh
     public HashSet<Line> lines;
     public Dictionary<Line,List<Triangle>> lineTriangleDictionary;          //线-三角字典
     public Dictionary<int,List<Triangle>> pointIndexTriangleDictionary;     //点(索引)-三角字典
+
+    private int counter = 0;
 
     public DigitalMesh(List<int> pointsRelativeOrder = null, Dictionary<int, Vector2> points = null,
         HashSet<Triangle> triangles = null, HashSet<Line> lines = null,
@@ -99,50 +100,55 @@ public class DigitalMesh
         List<int> Indices = new List<int>();
         for (int i = 0; i < addPoints.Count; i++)
         {
-            int pointhc=addPoints[i].GetHashCode();
-            points.Add(pointhc,addPoints[i]);
-            pointsRelativeOrder.Add(pointhc);
-            Indices.Add(pointhc);
+            while (points.ContainsKey(counter))
+            {
+                counter++;
+                counter %= Int32.MaxValue;
+            }
+
+            if (points.ContainsValue(addPoints[i]))
+            {
+                continue;
+            }
+            // int pointhc=addPoints[i].GetHashCode();
+            points.Add(counter,addPoints[i]);
+            pointsRelativeOrder.Add(counter);
+            Indices.Add(counter);
         }
         return Indices;
     }
 
-    public void Init(List<Vector2> newPoints)
+    public void Init(List<Vector2> pointsBuffer)
     {
-        Vector2 leftdown=newPoints[0], rightup=newPoints[0];
-        for (int i = 0; i < newPoints.Count; i++)
+        Vector2 leftdown=pointsBuffer[0], rightup=pointsBuffer[0];
+        for (int i = 0; i < pointsBuffer.Count; i++)
         {
-            leftdown = Vector2.Min(newPoints[i], leftdown);
-            rightup = Vector2.Max(newPoints[i], rightup);
+            leftdown = Vector2.Min(pointsBuffer[i], leftdown);
+            rightup = Vector2.Max(pointsBuffer[i], rightup);
         }
         leftdown-=Vector2.one;
         rightup+=Vector2.one;
         Vector2 rightdown = new Vector2(rightup.x, leftdown.y);
         Vector2 leftup = new Vector2(leftdown.x, rightup.y);
-        int leftdownhc = leftdown.GetHashCode();
-        int rightdownhc = rightup.GetHashCode();
-        int rightuphc = rightdown.GetHashCode();
-        int leftuphc = leftup.GetHashCode();
-        points.Add(leftdownhc,leftdown);
-        pointsRelativeOrder.Add(leftdownhc);
-        points.Add(rightdownhc,rightdown);
-        pointsRelativeOrder.Add(rightdownhc);
-        points.Add(rightuphc,rightup);
-        pointsRelativeOrder.Add(rightuphc);
-        points.Add(leftuphc,leftup);
-        pointsRelativeOrder.Add(leftuphc);
-        AddToMesh(new Triangle(leftdownhc,rightdownhc,rightuphc,this));
-        AddToMesh(new Triangle(leftdownhc,rightuphc,leftuphc,this));
-        ConstrainedTriangulation(newPoints,Delete.OUT);
+        List<Vector2> pointBuffer = new List<Vector2>
+        {
+            leftdown,
+            rightdown,
+            rightup,
+            leftup
+        };
+        List<int> indices=AddNewPointsToIndices(pointBuffer);
+        AddToMesh(new Triangle(indices[0],indices[1],indices[2],this));
+        AddToMesh(new Triangle(indices[1],indices[2],indices[3],this));
+        ConstrainedTriangulation(pointsBuffer,Delete.OUT);
 
 
-        points.Remove(leftuphc);
-        points.Remove(rightdownhc);
-        points.Remove(rightuphc);
-        points.Remove(leftuphc);
-
-
-
+        for (int i = 0; i < indices.Count; i++)
+        {
+            points.Remove(indices[i]);
+        }
+        
+        pointsBuffer.Clear();
         // for (int i = 0; i < 4; i++)
         // {
         //     for (int j = 0; j < pointIndexTriangleDictionary[i].Count; j++)
@@ -198,7 +204,7 @@ public class DigitalMesh
     }
     
     //约束Delaunay三角剖分,参数分别是:要添加的点,约束边,是否删除内部或外部三角
-    public void ConstrainedTriangulation(List<Vector2> newPoints, Delete delete = Delete.NO,
+    public List<int> ConstrainedTriangulation(List<Vector2> newPoints, Delete delete = Delete.NO,
         List<Line> constrainedLines = null)
     {
         List<int> indices = AddNewPointsToIndices(newPoints);
@@ -210,7 +216,7 @@ public class DigitalMesh
         HashSet<int> newPointIndices = new HashSet<int>();
 
 
-        for (int i = 0; i < newPoints.Count; i++)
+        for (int i = 0; i < indices.Count; i++)
         {
             if (delete!=Delete.NO)
             {
@@ -387,6 +393,8 @@ public class DigitalMesh
                 }
             }
         }
+
+        return indices;
     }
     
     //Delaunay三角剖分
@@ -417,7 +425,6 @@ public class DigitalMesh
         {
             newPointsIndices.Add(vindices);
         }
-        
         Clockwise(newPointsIndices,points[pointIndex]);
         
         for (int i = 0; i < newPointsIndices.Count; i++)
@@ -431,45 +438,45 @@ public class DigitalMesh
         }
     }
     
-    //耳切法
-    public void EarCut()
-    {
-        List<int> handlePoints = new List<int>();
-        for (int i = 0; i < points.Count; i++)
-        {
-            handlePoints.Add(i);
-        }
-        for (int i = 0; handlePoints.Count>2; i++)
-        {
-            i%=handlePoints.Count;
-            Vector2 a=points[handlePoints[i]];
-            Vector2 b=points[handlePoints[(i+1)%handlePoints.Count]];
-            Vector2 c=points[handlePoints[(i+2)%handlePoints.Count]];
-            if (Vector3.Cross(b - a, c - b).z < 0)
-            {
-                continue;
-            }
-
-            Triangle triangle = new Triangle(handlePoints[i], handlePoints[(i + 1) % handlePoints.Count],
-                handlePoints[(i + 2) % handlePoints.Count], this);
-            bool flag = true;
-            for (int j = i + 3; j%handlePoints.Count != i; j++)
-            {
-                j%=handlePoints.Count;
-                if (triangle.Check(points[handlePoints[j%handlePoints.Count]]))
-                {
-                    flag = false;
-                    break;
-                }
-            }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
-            if (flag)
-            {
-                AddToMesh(triangle);
-                handlePoints.RemoveAt((i+1)%handlePoints.Count);
-                i--;
-            }
-        }
-    }
+    //耳切法,可能失效了
+    // public void EarCut()
+    // {
+    //     List<int> handlePoints = new List<int>();
+    //     for (int i = 0; i < points.Count; i++)
+    //     {
+    //         handlePoints.Add(i);
+    //     }
+    //     for (int i = 0; handlePoints.Count>2; i++)
+    //     {
+    //         i%=handlePoints.Count;
+    //         Vector2 a=points[handlePoints[i]];
+    //         Vector2 b=points[handlePoints[(i+1)%handlePoints.Count]];
+    //         Vector2 c=points[handlePoints[(i+2)%handlePoints.Count]];
+    //         if (Vector3.Cross(b - a, c - b).z < 0)
+    //         {
+    //             continue;
+    //         }
+    //
+    //         Triangle triangle = new Triangle(handlePoints[i], handlePoints[(i + 1) % handlePoints.Count],
+    //             handlePoints[(i + 2) % handlePoints.Count], this);
+    //         bool flag = true;
+    //         for (int j = i + 3; j%handlePoints.Count != i; j++)
+    //         {
+    //             j%=handlePoints.Count;
+    //             if (triangle.Check(points[handlePoints[j%handlePoints.Count]]))
+    //             {
+    //                 flag = false;
+    //                 break;
+    //             }
+    //         }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
+    //         if (flag)
+    //         {
+    //             AddToMesh(triangle);
+    //             handlePoints.RemoveAt((i+1)%handlePoints.Count);
+    //             i--;
+    //         }
+    //     }
+    // }
 
     // public void DeletePoint(int pointIndex)
     // {
@@ -491,7 +498,7 @@ public class DigitalMesh
     //     }
     //     EmptyHoleTriangulation(emptyHolePointsIndices);
     // }
-    
+    //
     // void EmptyHoleTriangulation(List<int> pointsIndices)
     // {
     //     Vector2 leftdown=points[pointsIndices[0]], rightup=points[pointsIndices[0]];
@@ -536,6 +543,43 @@ public class DigitalMesh
     //             InstantiateTriangleMesh(pointsIndices[triangles[i].verticesIndices[0] - 4],
     //                 pointsIndices[triangles[i].verticesIndices[1] - 4],
     //                 pointsIndices[triangles[i].verticesIndices[2] - 4]);
+    //         }
+    //     }
+    // }
+    //
+    // void SeparatedTriangulation(List<Vector2> points,List<Triangle> triangles, int pointIndex)
+    // {
+    //     HashSet<int> hashIndices=new HashSet<int>();
+    //     List<int> newPointsIndices=new List<int>();
+    //     for (int i = 0; i < triangles.Count; i++)
+    //     {
+    //         if (triangles[i].circumcircle.Check(points[pointIndex]))
+    //         {
+    //             for (int j = 0; j < 3; j++)
+    //             {
+    //                 hashIndices.Add(triangles[i].verticesIndices[j]);
+    //             }
+    //             triangles.RemoveAt(i);
+    //             i--;
+    //         }
+    //     }
+    //
+    //     foreach (int vindices in hashIndices)
+    //     {
+    //         newPointsIndices.Add(vindices);
+    //     }
+    //     
+    //     Clockwise(points,newPointsIndices,pointIndex);
+    //     
+    //     for (int i = 0; i < newPointsIndices.Count; i++)
+    //     {
+    //         if (Vector3.Cross(points[newPointsIndices[i]] - points[newPointsIndices[(i + 1) % newPointsIndices.Count]],
+    //                 points[newPointsIndices[(i + 1) % newPointsIndices.Count]] - points[pointIndex]).z > 0.01f)
+    //         {
+    //             Triangle triangle = new Triangle(newPointsIndices[i],
+    //                 newPointsIndices[(i + 1) % newPointsIndices.Count],
+    //                 pointIndex, points);
+    //             triangles.Add(triangle);
     //         }
     //     }
     // }

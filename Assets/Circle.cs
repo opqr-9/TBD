@@ -14,7 +14,7 @@ public class Circle
 
     public bool Check(Vector2 point)
     {
-        if ((point - center).magnitude < radius)
+        if ((point - center).magnitude <= radius)
         {
             return true;
         }

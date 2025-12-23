@@ -31,8 +31,16 @@ public struct Line
     public Line(int pointIndex1, int pointIndex2,DigitalMesh digitalMesh)
     {
         this.digitalMesh = digitalMesh;
-        minpointIndex = Mathf.Min(pointIndex1,pointIndex2);
-        maxpointIndex = Mathf.Max(pointIndex1,pointIndex2);
+        if (pointIndex1 < pointIndex2)
+        {
+            minpointIndex = pointIndex1;
+            maxpointIndex = pointIndex2;
+        }
+        else
+        {
+            minpointIndex = pointIndex2;
+            maxpointIndex = pointIndex1;
+        }
     }
 
     public override bool Equals( object obj)
